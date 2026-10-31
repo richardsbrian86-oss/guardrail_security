@@ -1,0 +1,148 @@
+{
+  "_comment": "Guardrail pattern tables. Kept as DATA, not script, so antivirus does not static-scan security signatures as malicious code. Hot signature words use a one-char bracket class (Download[S]tring) - regex-equivalent, not a literal match. Sections: shell (tool_input.command), paths (tool_input.file_path), any (tool_name + serialized tool_input), secrets (written content). deny = hard block, ask = always confirm.",
+
+  "shell": {
+    "deny": [
+      { "m": "recursive delete of a filesystem root or home directory", "p": "(?i)\\brm\\s+-[a-z]*[rf][a-z]*\\s+(/\\s*$|/\\*|~|\\$HOME\\b|\\$env:USERPROFILE|[a-z]:[\\\\/]?(\\s|$|\\*))" },
+      { "m": "recursive delete of a drive root or home directory", "p": "(?i)\\bRemove-Item\\b[^;]*-Recurse[^;]*(\\$env:USERPROFILE|\\$HOME\\b|~[\\\\/]|[a-z]:\\\\(\\s|$|\\*))" },
+      { "m": "recursive delete of a drive root", "p": "(?i)\\b(del|rd|rmdir)\\b[^;]*\\s/s\\b[^;]*[a-z]:\\\\?(\\s|$|\\*)" },
+      { "m": "disk formatting / partitioning", "p": "(?i)\\b(mkfs|diskpart|Format-Volume|Clear-Disk|Initialize-Disk)\\b" },
+      { "m": "volume format", "p": "(?i)\\bformat\\s+[a-z]:" },
+      { "m": "free-space wipe", "p": "(?i)\\bcipher\\s+/w" },
+      { "m": "deletion of volume shadow copies (destroys local restore points)", "p": "(?i)\\bvssadmin\\b[^;]*delete\\s+shadows" },
+      { "m": "boot configuration change", "p": "(?i)\\bbcdedit\\b" },
+
+      { "m": "piping downloaded content straight into a shell - unreviewed remote code execution", "p": "(?i)(Invoke-WebRequest|Invoke-RestMethod|\\biwr\\b|\\birm\\b|\\bcurl\\b|\\bwget\\b)[^;|]*\\|\\s*(iex\\b|Invoke-Expression|bash\\b|sh\\b|powershell\\b|pwsh\\b|cmd\\b)" },
+      { "m": "executing a downloaded string - unreviewed remote code execution", "p": "(?i)\\b(Invoke-Expression|iex)\\b[^;]*\\b(Invoke-WebRequest|Invoke-RestMethod|iwr|irm|Download[S]tring)\\b" },
+      { "m": "in-memory download-and-execute pattern", "p": "(?i)Download[S]tring\\s*\\(" },
+      { "m": "base64-encoded PowerShell command - obfuscated execution", "p": "(?i)\\b(powershell|pwsh)\\b[^;]*\\s-e(nc|ncodedcommand)?\\s+[A-Za-z0-9+/=]{24,}" },
+      { "m": "downloading a script or binary to disk for execution", "p": "(?i)\\b(curl|wget|iwr|irm|Invoke-WebRequest|Invoke-RestMethod)\\b[^;]*\\|\\s*(Set-Content|Out-File|tee)\\b[^;]*\\.(ps1|bat|cmd|exe|sh)\\b" },
+
+      { "m": "disabling Microsoft Defender protection", "p": "(?i)Set-MpPreference\\b[^;]*-Disable" },
+      { "m": "adding a Defender scan exclusion", "p": "(?i)Add-MpPreference\\b[^;]*-Exclusion" },
+      { "m": "turning off the Windows firewall", "p": "(?i)netsh\\s+advfirewall\\s+set\\s+\\S+\\s+state\\s+off" },
+      { "m": "weakening the machine-wide PowerShell execution policy", "p": "(?i)Set-ExecutionPolicy\\b[^;]*\\b(Unrestricted|Bypass)\\b" },
+      { "m": "granting Everyone/Users full control over a path", "p": "(?i)\\bicacls\\b[^;]*(Everyone|BUILTIN\\\\Users)\\s*:\\s*\\(?[FM]" },
+      { "m": "taking ownership of a drive root", "p": "(?i)\\btakeown\\b[^;]*/f\\s+[a-z]:\\\\?(\\s|$)" },
+      { "m": "stopping a Windows security service", "p": "(?i)\\bStop-Service\\b[^;]*\\b(WinDefend|MpsSvc|EventLog|wuauserv)\\b" },
+      { "m": "disabling a Windows security service", "p": "(?i)\\b(Set-Service|sc\\.exe)\\b[^;]*\\b(WinDefend|MpsSvc|EventLog)\\b[^;]*disabled" },
+      { "m": "clearing Windows event logs", "p": "(?i)(\\bwevtutil\\b[^;]*\\bcl\\b|Clear-EventLog\\b)" },
+      { "m": "disabling Defender tamper protection", "p": "(?i)TamperProtection\\b[^;]*(0|\\$false|disabled)" },
+
+      { "m": "sending credential material to the network", "p": "(?i)\\b(curl|wget|Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\\b[^;]*(\\.ssh[\\\\/]|id_rsa|id_ed25519|\\.credentials\\.json|\\.aws[\\\\/]credentials|\\.env\\b|\\.codex[\\\\/]|\\.copilot[\\\\/]|\\.cursor[\\\\/])" },
+      { "m": "piping credential material to the network", "p": "(?i)(\\.ssh[\\\\/]|id_rsa|id_ed25519|\\.credentials\\.json|\\.aws[\\\\/]credentials|\\.env\\b)[^;]*\\|[^;]*\\b(curl|wget|Invoke-WebRequest|Invoke-RestMethod|nc|ncat)\\b" },
+      { "m": "reading private key / stored credential files", "p": "(?i)\\b(Get-Content|gc|type|cat|Select-String|findstr)\\b[^;]*(\\.credentials\\.json|\\.ssh[\\\\/]id_|\\.aws[\\\\/]credentials|\\.gnupg[\\\\/]|\\.docker[\\\\/]config\\.json|\\.codex[\\\\/]auth|\\.copilot[\\\\/].*token|\\.cursor[\\\\/].*token)" },
+      { "m": "reverse shell", "p": "(?i)\\b(nc|ncat|netcat)\\b[^;]*\\s-e\\b" },
+      { "m": "credential dumping tooling", "p": "(?i)(\\bmimi[k]atz\\b|\\bprocdum[p]\\b|\\bdumper[t]\\b|Get-Process\\b[^;]*lsas[s])" },
+      { "m": "reading a browser password store", "p": "(?i)((Login[ ]Data|Local[ ]State)[^;]*(Chrome|Edge|Brave)|(Chrome|Edge|Brave)[\\\\/]User[ ]Data[^;]*Login[ ]Data)" },
+      { "m": "exporting the Windows credential vault", "p": "(?i)\\b(vaultcmd|cmdkey\\s+/list|Get-StoredCredential)\\b" },
+
+      { "m": "writing to a credential store, autostart profile, git hook, or the guardrail config itself", "p": "(?i)\\b(Set-Content|Add-Content|Out-File|New-Item|Copy-Item|Move-Item|Remove-Item|Rename-Item|Clear-Content|Export-Csv|cp|mv|rm|del|erase|tee|touch|echo)\\b[^;]*(\\.ssh[\\\\/]|authorized_keys|id_rsa|id_ed25519|id_ecdsa|\\.aws[\\\\/]|\\.gnupg[\\\\/]|\\.credentials\\.json|\\.claude[\\\\/]hooks|\\.claude[\\\\/]settings[^;]{0,20}\\.json|\\.claude[\\\\/]CLAUDE\\.md|\\.claude[\\\\/](skills|agents|plugins|commands)[\\\\/]|\\$PROFILE|_profile\\.ps1|\\.kube[\\\\/]|\\.docker[\\\\/]config\\.json|\\.git[\\\\/]hooks[\\\\/]|\\.mcp\\.json|rules\\.json)" },
+      { "m": "redirecting output into a credential store, autostart profile, or the guardrail config itself", "p": "(?i)>>?\\s*[^;|]{0,120}(\\.ssh[\\\\/]|authorized_keys|id_rsa|id_ed25519|\\.aws[\\\\/]|\\.gnupg[\\\\/]|\\.credentials\\.json|\\.claude[\\\\/]hooks|\\.claude[\\\\/]settings[^;]{0,20}\\.json|\\$PROFILE|_profile\\.ps1|\\.git[\\\\/]hooks[\\\\/]|\\.mcp\\.json|rules\\.json)" },
+      { "m": "disabling the Claude Code hook system", "p": "(?i)(disableAllHooks|allowManagedHooksOnly|disableBypassPermissionsMode)" },
+      { "m": "launching Claude Code with permission checks skipped", "p": "(?i)(--dangerously-skip-permissions|bypassPermissions)" },
+      { "m": "repointing git hooks", "p": "(?i)\\bgit\\s+config\\b[^;]*core\\.hooksPath" },
+      { "m": "rewriting all git history", "p": "(?i)\\bgit\\s+filter-(branch|repo)\\b" }
+    ],
+
+    "ask": [
+      { "m": "force push (rewrites remote history)", "p": "(?i)\\bgit\\s+push\\b[^;]*(--force\\b|\\s-f\\b)", "skip": "(?i)--force-with-lease" },
+      { "m": "deleting a remote ref", "p": "(?i)\\bgit\\s+push\\b[^;]*--delete\\b" },
+      { "m": "hard reset (discards uncommitted work)", "p": "(?i)\\bgit\\s+reset\\s+--hard\\b" },
+      { "m": "git clean -f (deletes untracked files)", "p": "(?i)\\bgit\\s+clean\\b[^;]*\\s-[a-z]*f" },
+      { "m": "force-deleting a branch or tag", "p": "(?i)\\bgit\\s+(branch|tag)\\s+-D\\b" },
+      { "m": "discarding local changes to tracked files", "p": "(?i)\\bgit\\s+checkout\\s+--\\s" },
+      { "m": "skipping git pre-commit/pre-push hooks", "p": "(?i)\\bgit\\s+(commit|push)\\b[^;]*--no-verify" },
+      { "m": "deleting a GitHub repository", "p": "(?i)\\bgh\\s+repo\\s+delete\\b" },
+      { "m": "writing a GitHub Actions secret", "p": "(?i)\\bgh\\s+secret\\s+set\\b" },
+      { "m": "changing repository visibility", "p": "(?i)\\bgh\\s+repo\\s+edit\\b[^;]*--visibility" },
+      { "m": "publishing to the npm registry", "p": "(?i)\\bnpm\\s+(publish|unpublish)\\b" },
+      { "m": "global package install", "p": "(?i)\\b(npm|pnpm|yarn)\\s+\\S*install\\b[^;]*\\s-g\\b" },
+      { "m": "machine-level package install", "p": "(?i)\\b(choco|winget|scoop)\\s+(install|uninstall)\\b" },
+      { "m": "installing from a git URL or tarball rather than a registry", "p": "(?i)\\bnpm\\s+i(nstall)?\\b[^;]*(git\\+|https?://|\\.tgz)" },
+      { "m": "writing a machine-level or autostart registry key", "p": "(?i)\\b(New-ItemProperty|Set-ItemProperty|reg\\s+add)\\b[^;]*(HKLM:|HKEY_LOCAL_MACHINE|CurrentVersion\\\\Run)" },
+      { "m": "creating a scheduled task or service (persistence)", "p": "(?i)(\\bschtasks\\b[^;]*/create|Register-ScheduledTask\\b|New-Service\\b)" },
+      { "m": "spawning a process via WMI", "p": "(?i)\\bwmic\\b[^;]*process[^;]*call[^;]*create" },
+      { "m": "decoding base64 in a shell command (often obfuscation)", "p": "(?i)FromBase64[S]tring" },
+      { "m": "running an indirect or assembled command string (bypasses pattern checks)", "p": "(?i)(\\bStart-Process\\b[^;]*(powershell|pwsh|cmd)|\\bcmd\\b\\s+/c\\s|\\bbash\\b\\s+-c\\s|\\biex\\b|Invoke-Expression)" },
+      { "m": "executing a script file created during this session", "p": "(?i)^(&\\s*)?[\"']?\\.[\\\\/][^;]*\\.(ps1|bat|cmd|sh)\\b" },
+      { "m": "applying or destroying real infrastructure", "p": "(?i)\\b(terraform|tofu)\\s+(apply|destroy)\\b" },
+      { "m": "deleting Kubernetes resources", "p": "(?i)\\bkubectl\\s+delete\\b" },
+      { "m": "cloud resource deletion", "p": "(?i)\\b(aws|az|gcloud)\\b[^;]*\\b(delete|rm|destroy|terminate-instances)\\b" },
+      { "m": "deleting docker volumes or pruning the system", "p": "(?i)\\bdocker\\b[^;]*\\s(system\\s+prune|volume\\s+rm)\\b" },
+      { "m": "destructive SQL against a database", "p": "(?i)\\b(DROP\\s+(DATABASE|SCHEMA|TABLE)|TRUNCATE\\s+TABLE|DELETE\\s+FROM\\s+\\S+\\s*;?\\s*$)" },
+      { "m": "writing to an environment or registry-auth file that usually holds real secrets", "p": "(?i)\\b(Set-Content|Add-Content|Out-File|New-Item|Copy-Item|Move-Item|tee|echo)\\b[^;]*(\\.env\\b|\\.npmrc|\\.pypirc|\\.netrc|_netrc|secrets?\\.(json|ya?ml|toml))", "skip": "(?i)\\.env\\.(example|sample|template)" }
+    ]
+  },
+
+  "paths": {
+    "deny": [
+      { "m": "SSH key directory", "p": "(?i)\\\\\\.ssh\\\\" },
+      { "m": "SSH private key", "p": "(?i)\\\\(id_rsa|id_ed25519|id_ecdsa|id_dsa)" },
+      { "m": "AWS credentials file", "p": "(?i)\\\\\\.aws\\\\credentials" },
+      { "m": "GPG keyring", "p": "(?i)\\\\\\.gnupg\\\\" },
+      { "m": "stored auth credentials", "p": "(?i)\\\\\\.credentials\\.json$" },
+      { "m": "private key / keystore file", "p": "(?i)\\.(pem|pfx|p12|jks|keystore|ppk)$" },
+      { "m": "kubeconfig", "p": "(?i)\\\\\\.kube\\\\config" },
+      { "m": "docker registry auth", "p": "(?i)\\\\\\.docker\\\\config\\.json$" },
+      { "m": "another coding agent's credential store", "p": "(?i)\\\\\\.(codex|copilot|cursor)\\\\.*(auth|token|credential|session)" },
+      { "m": "Windows system directory", "p": "(?i)^[a-z]:\\\\windows\\\\" },
+      { "m": "installed program directory", "p": "(?i)^[a-z]:\\\\program files" },
+      { "m": "git config or git hooks (silent code execution path)", "p": "(?i)\\\\\\.git\\\\(config|hooks)" },
+      { "m": "autostart folder (persistence)", "p": "(?i)\\\\Start Menu\\\\Programs\\\\Startup\\\\" },
+      { "m": "a PowerShell profile (runs on every shell start)", "p": "(?i)\\\\(Microsoft\\.PowerShell_profile|profile)\\.ps1$" },
+      { "m": "a shell startup file (runs on every shell start)", "p": "(?i)\\\\(\\.bashrc|\\.bash_profile|\\.zshrc|\\.profile)$" },
+      { "m": "the security guardrail scripts and ruleset", "p": "(?i)\\\\\\.claude\\\\hooks\\\\" },
+      { "m": "Claude Code settings, where the guardrails are wired up", "p": "(?i)\\\\\\.claude\\\\settings(\\.local)?\\.json$" },
+      { "m": "a Claude skill, agent, command, or plugin definition (standing instructions and code)", "p": "(?i)\\\\\\.claude\\\\(skills|agents|plugins|commands)\\\\" },
+      { "m": "MCP server configuration (adds new tool capabilities)", "p": "(?i)\\\\\\.mcp\\.json$|\\\\known_marketplaces\\.json$" }
+    ],
+
+    "ask": [
+      { "m": "environment file that typically holds real secrets", "p": "(?i)\\\\\\.env($|\\.)", "skip": "(?i)\\\\\\.env\\.(example|sample|template)$" },
+      { "m": "your global coding standards", "p": "(?i)\\\\\\.claude\\\\CLAUDE\\.md$" },
+      { "m": "registry auth file", "p": "(?i)\\\\(\\.npmrc|\\.pypirc|\\.netrc|_netrc)$" },
+      { "m": "a file named like a secret store", "p": "(?i)\\\\(secrets?|credentials?)\\.(json|ya?ml|toml|ini)$" },
+      { "m": "a CI workflow (runs with repository secrets)", "p": "(?i)\\\\\\.github\\\\workflows\\\\" },
+      { "m": "a dependency manifest or lockfile (supply-chain surface)", "p": "(?i)\\\\(package\\.json|package-lock\\.json|requirements\\.txt|pyproject\\.toml|Cargo\\.toml|go\\.mod|Gemfile)$" },
+      { "m": "an infrastructure definition", "p": "(?i)\\.(tf|tfvars)$" }
+    ]
+  },
+
+  "any": {
+    "deny": [
+      { "m": "provisioning new MCP capabilities on the fly (grants the agent tools nothing has reviewed)", "p": "(?i)^mcp__\\S*Zapier\\S*__(auto_provision_mcp|write_code_action)\\b" }
+    ],
+
+    "ask": [
+      { "m": "sending email on your behalf (outbound data leaves your machine)", "p": "(?i)^mcp__\\S*(Gmail|Resend)\\S*__(send|reply|forward|create_draft|update_draft)" },
+      { "m": "destructive mailbox operation", "p": "(?i)^mcp__\\S*Gmail\\S*__(trash_|untrash_|delete_|mark_\\S*spam)" },
+      { "m": "sharing or modifying Google Drive content", "p": "(?i)^mcp__\\S*Google_Drive\\S*__(share_file|trash_file|update_file|create_file|copy_file)" },
+      { "m": "Zapier action affecting external apps or your connections", "p": "(?i)^mcp__\\S*Zapier\\S*__(execute_zapier_write_action|enable_zapier_action|disable_zapier_action|create_zapier_skill|update_zapier_skill|delete_zapier_skill|manage_zapier_connections)" },
+      { "m": "creating, changing, or publishing a Replit app", "p": "(?i)^mcp__\\S*Replit\\S*__(publish_app|create_app_from_prompt|update_app_using_prompt|import-claude-design)" },
+      { "m": "deleting or exporting a shared document", "p": "(?i)^mcp__\\S*Claude_Docs\\S*__(delete|export)" },
+      { "m": "publishing or mutating a hosted Artifact (content leaves your machine to a hosted URL)", "p": "(?i)^Artifact (?!.*\"action\":\"(read|list|list_types|describe_type|status|comments|list_files|read_file|list_assets|read_asset|open|watch|unwatch)\")" },
+      { "m": "running an agent in a remote/cloud environment, where these local guardrails do not apply", "p": "(?i)^Agent\\b.*\"isolation\"\\s*:\\s*\"remote\"" },
+      { "m": "fanning out a multi-agent workflow (large blast radius and cost)", "p": "(?i)^Workflow\\b" },
+      { "m": "scheduling unattended future execution (persistence)", "p": "(?i)^(CronCreate|RemoteTrigger|PushNotification)\\b" },
+      { "m": "messaging another session or machine", "p": "(?i)^SendMessage\\b" }
+    ]
+  },
+
+  "secrets": {
+    "ask": [
+      { "m": "AWS access key id", "p": "\\b(AKIA|ASIA)[0-9A-Z]{16}\\b" },
+      { "m": "GitHub token", "p": "\\b(ghp|gho|ghu|ghs|ghr|github_pat)_[A-Za-z0-9_]{20,}" },
+      { "m": "Anthropic API key", "p": "\\bsk-ant-[A-Za-z0-9_-]{20,}" },
+      { "m": "OpenAI-style API key", "p": "\\bsk-[A-Za-z0-9]{32,}\\b" },
+      { "m": "Google API key", "p": "\\bAIza[0-9A-Za-z_-]{35}\\b" },
+      { "m": "Slack token", "p": "\\bxox[abprs]-[0-9A-Za-z-]{10,}" },
+      { "m": "Stripe secret key", "p": "\\b(sk|rk)_(live|test)_[0-9A-Za-z]{20,}" },
+      { "m": "private key block", "p": "-----BEGIN [A-Z ]*PRIVATE KEY-----" },
+      { "m": "database connection string with an inline password", "p": "(?i)\\b(postgres(ql)?|mysql|mongodb(\\+srv)?|redis|amqp)://[^\\s:@/]+:[^\\s:@/]{6,}@" },
+      { "m": "hardcoded credential assignment", "p": "(?i)\\b(api[_-]?key|secret|password|passwd|token|client[_-]?secret|access[_-]?key)\\b\\s*[:=]\\s*[\"'][^\"'\\s$<>{}]{12,}[\"']", "skip": "(?i)[\"'](|x+|\\.{3}|your[_-]?|changeme|placeholder|example|dummy|test|fake|redacted|xxx|<[^>]*>|\\$\\{?[A-Z_]+\\}?|process\\.env|os\\.environ)" },
+      { "m": "JSON Web Token", "p": "\\beyJ[A-Za-z0-9_-]{10,}\\.eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}" }
+    ]
+  }
+}
+
