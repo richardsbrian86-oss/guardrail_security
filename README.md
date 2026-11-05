@@ -64,6 +64,7 @@ retrying. A write may have succeeded before completion logging failed.
 - tests/test_backend.py: integration and failure-mode tests.
 - verify.py: local build gate.
 - docs/SECURITY-BOUNDARY.md: coverage, deployment assumptions, remaining gaps.
+- docs/HANDS_ON_TESTING.md: author-observed testing evidence and verification limits.
 - hooks/ and claude/: preserved source snapshot, not loaded by this backend.
 
 The imported regex policy is not an authorization source for the new backend.
